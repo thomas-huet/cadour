@@ -1,0 +1,3 @@
+(executable
+ (name cadour)
+ (libraries threads netclient netsys nettls-gnutls xmlm))
