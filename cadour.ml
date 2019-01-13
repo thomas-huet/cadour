@@ -16,12 +16,19 @@ with e ->
   Printf.eprintf "Error parsing \"%s\": %s" url (Printexc.to_string e);
   []
 
+let domain_regexp = Str.regexp "https?://\\([^/]+\\)"
+let domain url =
+  if Str.string_match domain_regexp url 0 then
+    Str.matched_group 1 url
+  else
+    url
+
 let html_of_entry e =
   Element("div", [], [
     Element("p", [], [Data (Date.to_string e.Feed.date)]);
     Element("a", ["href", e.Feed.link], [
       Element("h2", [], [Data e.Feed.title]);
-      Element("p", [], [Data e.Feed.link]);
+      Element("p", [], [Data (domain e.Feed.link)]);
     ]);
     Element("hr", [], []);
   ])
