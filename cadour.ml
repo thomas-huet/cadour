@@ -13,7 +13,7 @@ let feed_of_url url = try
   let xml = http_get url in
   Feed.parse xml
 with e ->
-  Printf.eprintf "Error parsing \"%s\": %s" url (Printexc.to_string e);
+  Printf.eprintf "Error parsing \"%s\": %s\n" url (Printexc.to_string e);
   []
 
 let domain_regexp = Str.regexp "https?://\\([^/]+\\)"
