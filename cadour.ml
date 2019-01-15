@@ -6,7 +6,10 @@ let () = Nettls_gnutls.init ()
 let rec read_lines () =
   try
     let line = read_line () in
-    line :: read_lines ()
+    if String.length line = 0 || line.[0] = '#' then
+      read_lines ()
+    else
+      line :: read_lines ()
   with End_of_file -> []
 
 let feed_of_url url = try
