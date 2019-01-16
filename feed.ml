@@ -31,7 +31,11 @@ let rec parse_entry = function
 | [] -> { title = ""; link = ""; date = 0 }
 | E ("title", _, [D title]) :: t -> { (parse_entry t) with title }
 | E ("link", a, []) :: t -> { (parse_entry t) with link = List.assoc "href" a }
-| E ("updated", _, [D date]) :: t -> { (parse_entry t) with date = Date.parse date }
+| E ("published", _, [D date]) :: t -> { (parse_entry t) with date = Date.parse date }
+| E ("updated", _, [D date]) :: t ->
+  let entry = parse_entry t in
+  if entry.date = 0 then { entry with date = Date.parse date }
+  else entry
 | _ :: t -> parse_entry t
 
 let rec parse_atom = function
