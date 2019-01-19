@@ -40,9 +40,13 @@ let rec summary = function
 | [Some f] -> [link_to_blog f; Element("hr", [], [])]
 | Some f :: t -> link_to_blog f :: Data " | " :: summary t
 
+let format_date d =
+  let y, m, d = Ptime.to_date d in
+  Printf.sprintf "%04d-%02d-%02d" y m d
+
 let html_of_entry e =
   Element("div", [], [
-    Element("p", [], [Data (Date.to_string e.Feed.date)]);
+    Element("p", [], [Data (format_date e.Feed.date)]);
     Element("a", ["href", e.Feed.link], [
       Element("h2", [], [Data e.Feed.title]);
       Element("p", [], [Data (domain e.Feed.link)]);

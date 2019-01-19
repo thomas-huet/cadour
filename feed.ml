@@ -1,4 +1,6 @@
-type entry = { title : string; link : string; date : int }
+open Syndic
+
+type entry = { title : string; link : string; date : Date.t }
 
 type t = {name : string; url : string; description : string; entries : entry list}
 
@@ -14,10 +16,10 @@ let parse_doc_tree s =
 
 module RSS = struct
   let rec parse_item = function
-  | [] -> { title = ""; link = ""; date = 0 }
+  | [] -> { title = ""; link = ""; date = Date.epoch }
   | E ("title", _, [D title]) :: t -> { (parse_item t) with title }
   | E ("link", _, [D link]) :: t -> { (parse_item t) with link }
-  | E ("pubDate", _, [D date]) :: t -> { (parse_item t) with date = Date.parse date }
+  | E ("pubDate", _, [D date]) :: t -> { (parse_item t) with date = Date.of_rfc822 date }
   | _ :: t -> parse_item t
 
   let rec parse_channel = function
@@ -42,14 +44,14 @@ module Atom = struct
   | Some _ -> false
 
   let rec parse_entry = function
-  | [] -> { title = ""; link = ""; date = 0 }
+  | [] -> { title = ""; link = ""; date = Date.epoch }
   | E ("title", _, [D title]) :: t -> { (parse_entry t) with title }
   | E ("link", a, []) :: t when is_alternate a ->
     { (parse_entry t) with link = List.assoc "href" a }
-  | E ("published", _, [D date]) :: t -> { (parse_entry t) with date = Date.parse date }
+  | E ("published", _, [D date]) :: t -> { (parse_entry t) with date = Date.of_rfc3339 date }
   | E ("updated", _, [D date]) :: t ->
     let entry = parse_entry t in
-    if entry.date = 0 then { entry with date = Date.parse date }
+    if entry.date = Date.epoch then { entry with date = Date.of_rfc3339 date }
     else entry
   | _ :: t -> parse_entry t
 
@@ -71,4 +73,4 @@ let parse s = match parse_doc_tree s with
 | _ -> raise (Parse_error "Feed is not RSS or Atom")
 
 let merge feeds =
-  List.sort (fun a b -> b.date - a.date) (List.concat feeds)
+  List.sort (fun a b -> Date.compare b.date a.date) (List.concat feeds)
