@@ -1,5 +1,7 @@
 type entry = { title : string; link : string; date : int }
 
+type t = {name : string; url : string; description : string; entries : entry list}
+
 type doc_tree = E of string * (string * string) list * doc_tree list | D of string
 
 exception Parse_error of string
@@ -10,42 +12,62 @@ let parse_doc_tree s =
   let data d = D d in
   snd (Xmlm.input_doc_tree ~el ~data input)
 
-let rec parse_item = function
-| [] -> { title = ""; link = ""; date = 0 }
-| E ("title", _, [D title]) :: t -> { (parse_item t) with title }
-| E ("link", _, [D link]) :: t -> { (parse_item t) with link }
-| E ("pubDate", _, [D date]) :: t -> { (parse_item t) with date = Date.parse date }
-| _ :: t -> parse_item t
+module RSS = struct
+  let rec parse_item = function
+  | [] -> { title = ""; link = ""; date = 0 }
+  | E ("title", _, [D title]) :: t -> { (parse_item t) with title }
+  | E ("link", _, [D link]) :: t -> { (parse_item t) with link }
+  | E ("pubDate", _, [D date]) :: t -> { (parse_item t) with date = Date.parse date }
+  | _ :: t -> parse_item t
 
-let rec parse_channel = function
-| [] -> []
-| E ("item", _, i) :: t -> parse_item i :: parse_channel t
-| _ :: t -> parse_channel t
-  
-let parse_rss = function
-| [E ("channel", _, c)] | [D _; E ("channel", _, c); D _]
-| [D _; E ("channel", _, c)] | [E ("channel", _, c); D _] -> parse_channel c
-| _ -> raise (Parse_error "RSS feed must contain a single channel")
+  let rec parse_channel = function
+  | [] -> { name = ""; url = ""; description = ""; entries = [] }
+  | E ("title", _, [D name]) :: t -> { (parse_channel t) with name }
+  | E ("link", _, [D url]) :: t -> { (parse_channel t) with url }
+  | E ("description", _, [D description]) :: t -> { (parse_channel t) with description }
+  | E ("item", _, i) :: t ->
+    let feed = parse_channel t in
+    { feed with entries = parse_item i :: feed.entries }
+  | _ :: t -> parse_channel t
+    
+  let parse = function
+  | [E ("channel", _, c)] | [D _; E ("channel", _, c); D _]
+  | [D _; E ("channel", _, c)] | [E ("channel", _, c); D _] -> parse_channel c
+  | _ -> raise (Parse_error "RSS feed must contain a single channel")
+end
 
-let rec parse_entry = function
-| [] -> { title = ""; link = ""; date = 0 }
-| E ("title", _, [D title]) :: t -> { (parse_entry t) with title }
-| E ("link", a, []) :: t -> { (parse_entry t) with link = List.assoc "href" a }
-| E ("published", _, [D date]) :: t -> { (parse_entry t) with date = Date.parse date }
-| E ("updated", _, [D date]) :: t ->
-  let entry = parse_entry t in
-  if entry.date = 0 then { entry with date = Date.parse date }
-  else entry
-| _ :: t -> parse_entry t
+module Atom = struct
+  let is_alternate a = match List.assoc_opt "rel" a with
+  | None | Some "alternate" -> true
+  | Some _ -> false
 
-let rec parse_atom = function
-| [] -> []
-| E ("entry", _, e) :: t -> parse_entry e :: parse_atom t
-| _ ::t -> parse_atom t
+  let rec parse_entry = function
+  | [] -> { title = ""; link = ""; date = 0 }
+  | E ("title", _, [D title]) :: t -> { (parse_entry t) with title }
+  | E ("link", a, []) :: t when is_alternate a ->
+    { (parse_entry t) with link = List.assoc "href" a }
+  | E ("published", _, [D date]) :: t -> { (parse_entry t) with date = Date.parse date }
+  | E ("updated", _, [D date]) :: t ->
+    let entry = parse_entry t in
+    if entry.date = 0 then { entry with date = Date.parse date }
+    else entry
+  | _ :: t -> parse_entry t
+
+  let rec parse = function
+  | [] -> { name = ""; url = ""; description = ""; entries = [] }
+  | E ("title", _, [D name]) :: t -> { (parse t) with name }
+  | E ("link", a, []) :: t when is_alternate a ->
+    { (parse t) with url = List.assoc "href" a }
+  | E ("subtitle", _, [D description]) :: t -> { (parse t) with description }
+  | E ("entry", _, e) :: t ->
+    let feed = parse t in
+    { feed with entries = parse_entry e :: feed.entries }
+  | _ ::t -> parse t
+end
 
 let parse s = match parse_doc_tree s with
-| E ("rss", _, r) -> parse_rss r
-| E ("feed", _, a) -> parse_atom a
+| E ("rss", _, r) -> RSS.parse r
+| E ("feed", _, a) -> Atom.parse a
 | _ -> raise (Parse_error "Feed is not RSS or Atom")
 
 let merge feeds =
