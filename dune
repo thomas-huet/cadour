@@ -1,3 +1,3 @@
 (executable
  (name cadour)
- (libraries str threads netclient netsys nettls-gnutls xmlm syndic))
+ (libraries str threads netclient netsys nettls-gnutls syndic))

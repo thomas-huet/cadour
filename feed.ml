@@ -1,76 +1,57 @@
 open Syndic
 
-type entry = { title : string; link : string; date : Date.t }
+type t = Atom.feed
 
-type t = {name : string; url : string; description : string; entries : entry list}
+let string_of_xml xml =
+  let b = Buffer.create 1024 in
+  let rec traverse = function
+  | XML.Data(_, s) -> Buffer.add_string b s
+  | XML.Node(_, _, children) -> List.iter traverse children
+  in
+  List.iter traverse xml;
+  Buffer.contents b
 
-type doc_tree = E of string * (string * string) list * doc_tree list | D of string
+let string_of_text_construct : Atom.text_construct -> string = function
+| Atom.Text s | Atom.Html(_,s) -> s
+| Atom.Xhtml(_, xml) -> string_of_xml xml
 
-exception Parse_error of string
+let parse uri content =
+  try
+    Atom.parse ~self:uri ~xmlbase:uri (Xmlm.make_input (`String(0, content)))
+  with Atom.Error.Error _ ->
+    Rss2.to_atom ~self:uri @@
+      Rss2.parse ~xmlbase:uri (Xmlm.make_input (`String(0, content)))
 
-let parse_doc_tree s =
-  let input = Xmlm.make_input (`String(0, s)) in
-  let el ((_, tag), a) children = E (tag, List.map (fun ((_, k), v) -> (k, v)) a, children)  in
-  let data d = D d in
-  snd (Xmlm.input_doc_tree ~el ~data input)
+let link f =
+  let link = List.find (fun l -> l.Atom.rel = Atom.Alternate) f.Atom.links in
+  Uri.to_string link.Atom.href
 
-module RSS = struct
-  let rec parse_item = function
-  | [] -> { title = ""; link = ""; date = Date.epoch }
-  | E ("title", _, [D title]) :: t -> { (parse_item t) with title }
-  | E ("link", _, [D link]) :: t -> { (parse_item t) with link }
-  | E ("pubDate", _, [D date]) :: t -> { (parse_item t) with date = Date.of_rfc822 date }
-  | _ :: t -> parse_item t
+let title f =
+  string_of_text_construct f.Atom.title
 
-  let rec parse_channel = function
-  | [] -> { name = ""; url = ""; description = ""; entries = [] }
-  | E ("title", _, [D name]) :: t -> { (parse_channel t) with name }
-  | E ("link", _, [D url]) :: t -> { (parse_channel t) with url }
-  | E ("description", _, [D description]) :: t -> { (parse_channel t) with description }
-  | E ("item", _, i) :: t ->
-    let feed = parse_channel t in
-    { feed with entries = parse_item i :: feed.entries }
-  | _ :: t -> parse_channel t
-    
-  let parse = function
-  | [E ("channel", _, c)] | [D _; E ("channel", _, c); D _]
-  | [D _; E ("channel", _, c)] | [E ("channel", _, c); D _] -> parse_channel c
-  | _ -> raise (Parse_error "RSS feed must contain a single channel")
+let subtitle f = match f.Atom.subtitle with
+| None -> None
+| Some t -> Some(string_of_text_construct t)
+
+module Entry = struct
+  type t = Atom.entry
+
+  let date e =
+    let date = match e.Atom.published with
+      | None -> e.Atom.updated
+      | Some d -> d
+    in
+    let y, m, d = Ptime.to_date date in
+    Printf.sprintf "%04d-%02d-%02d" y m d
+
+  let link (e : t) =
+    let link = List.find (fun l -> l.Atom.rel = Atom.Alternate) e.Atom.links in
+    Uri.to_string link.Atom.href
+
+  let title (e : t) =
+    string_of_text_construct e.Atom.title
 end
 
-module Atom = struct
-  let is_alternate a = match List.assoc_opt "rel" a with
-  | None | Some "alternate" -> true
-  | Some _ -> false
-
-  let rec parse_entry = function
-  | [] -> { title = ""; link = ""; date = Date.epoch }
-  | E ("title", _, [D title]) :: t -> { (parse_entry t) with title }
-  | E ("link", a, []) :: t when is_alternate a ->
-    { (parse_entry t) with link = List.assoc "href" a }
-  | E ("published", _, [D date]) :: t -> { (parse_entry t) with date = Date.of_rfc3339 date }
-  | E ("updated", _, [D date]) :: t ->
-    let entry = parse_entry t in
-    if entry.date = Date.epoch then { entry with date = Date.of_rfc3339 date }
-    else entry
-  | _ :: t -> parse_entry t
-
-  let rec parse = function
-  | [] -> { name = ""; url = ""; description = ""; entries = [] }
-  | E ("title", _, [D name]) :: t -> { (parse t) with name }
-  | E ("link", a, []) :: t when is_alternate a ->
-    { (parse t) with url = List.assoc "href" a }
-  | E ("subtitle", _, [D description]) :: t -> { (parse t) with description }
-  | E ("entry", _, e) :: t ->
-    let feed = parse t in
-    { feed with entries = parse_entry e :: feed.entries }
-  | _ ::t -> parse t
-end
-
-let parse s = match parse_doc_tree s with
-| E ("rss", _, r) -> RSS.parse r
-| E ("feed", _, a) -> Atom.parse a
-| _ -> raise (Parse_error "Feed is not RSS or Atom")
-
-let merge feeds =
-  List.sort (fun a b -> Date.compare b.date a.date) (List.concat feeds)
+let merge l =
+  let all = Atom.aggregate l in
+  all.Atom.entries

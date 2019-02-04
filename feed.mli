@@ -1,9 +1,21 @@
-exception Parse_error of string
+type t
 
-type entry = { title : string; link : string; date : Syndic.Date.t }
+val parse : Uri.t -> string -> t
 
-type t = {name : string; url : string; description : string; entries : entry list}
+val link : t -> string
 
-val parse : string -> t
+val title : t -> string
 
-val merge : entry list list -> entry list
+val subtitle : t -> string option
+
+module Entry : sig
+  type t
+
+  val date : t -> string
+
+  val link : t -> string
+
+  val title : t -> string
+end
+
+val merge : t list -> Entry.t list

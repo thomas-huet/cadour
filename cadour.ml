@@ -12,12 +12,25 @@ let rec read_lines () =
       line :: read_lines ()
   with End_of_file -> []
 
-let feed_of_url url = try
+let feed_of_url url =
   let xml = http_get url in
-  Some(Feed.parse xml)
-with e ->
-  Printf.eprintf "Error parsing \"%s\": %s\n" url (Printexc.to_string e);
-  None
+  let uri = Uri.of_string url in
+  Feed.parse uri xml
+
+let print_err url = function
+| Syndic.Atom.Error.Error _ as e ->
+  Printf.eprintf "Syndic error processing \"%s\": %s\n" url (Syndic.Atom.Error.to_string e)
+| e ->
+  Printf.eprintf "Error processing \"%s\": %s\n" url (Printexc.to_string e)
+
+let rec map_err print_err f = function
+| [] -> []
+| h :: t ->
+  try
+    f h :: map_err print_err f t
+  with e ->
+    print_err h e;
+    map_err print_err f t
 
 let domain_regexp = Str.regexp "https?://\\([^/]+\\)"
 let domain url =
@@ -26,39 +39,34 @@ let domain url =
   else
     url
 
-let title f =
-  if f.Feed.description = "" then domain f.Feed.url
-  else f.Feed.description
-
 let link_to_blog f =
-  Element("a", ["href", f.Feed.url; "title", title f], [Data f.Feed.name])
+  let url = Feed.link f in
+  let subtitle = match Feed.subtitle f with
+  | Some s -> s
+  | None -> domain url
+  in
+  Element("a", ["href", url; "title", subtitle], [Data(Feed.title f)])
 
 let rec summary = function
 | [] -> [Element("hr", [], [])]
-| None :: t -> summary t
-| Some f :: None :: t -> summary (Some f :: t)
-| [Some f] -> [link_to_blog f; Element("hr", [], [])]
-| Some f :: t -> link_to_blog f :: Data " | " :: summary t
-
-let format_date d =
-  let y, m, d = Ptime.to_date d in
-  Printf.sprintf "%04d-%02d-%02d" y m d
+| [f] -> [link_to_blog f; Element("hr", [], [])]
+| f :: t -> link_to_blog f :: Data " | " :: summary t
 
 let html_of_entry e =
   Element("div", [], [
-    Element("p", [], [Data (format_date e.Feed.date)]);
-    Element("a", ["href", e.Feed.link], [
-      Element("h2", [], [Data e.Feed.title]);
-      Element("p", [], [Data (domain e.Feed.link)]);
+    Element("p", [], [Data(Feed.Entry.date e)]);
+    Element("a", ["href", Feed.Entry.link e], [
+      Element("h2", [], [Data(Feed.Entry.title e)]);
+      Element("p", [], [Data(domain (Feed.Entry.link e))]);
     ]);
     Element("hr", [], []);
   ])
 
 let () =
   let lines = read_lines () in
-  let feeds = List.map feed_of_url lines in
+  let feeds = map_err print_err feed_of_url lines in
   let html_summary = summary feeds in
-  let entries = Feed.merge (List.map (function None -> [] | Some f -> f.Feed.entries) feeds) in
+  let entries = Feed.merge feeds in
   let html_entries = List.map html_of_entry entries in
   let out = new Netchannels.output_channel stdout in
   write out html_summary;
