@@ -72,5 +72,17 @@ let parse s = match parse_doc_tree s with
 | E ("feed", _, a) -> Atom.parse a
 | _ -> raise (Parse_error "Feed is not RSS or Atom")
 
+let filter = function
+| None -> fun feed -> feed
+| Some r ->
+  let positive = r.[0] <> '-' in
+  let regex = Str.regexp (if positive then r else String.sub r 1 (String.length r - 1)) in
+  let valid e = try
+    let _ = Str.search_forward regex e.title 0 in
+    positive
+  with Not_found -> not positive
+  in
+  fun feed -> { feed with entries = List.filter valid feed.entries }
+ 
 let merge feeds =
   List.sort (fun a b -> Date.compare b.date a.date) (List.concat feeds)

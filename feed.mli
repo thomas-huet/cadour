@@ -6,4 +6,6 @@ type t = {name : string; url : string; description : string; entries : entry lis
 
 val parse : string -> t
 
+val filter : string option -> t -> t
+
 val merge : entry list list -> entry list

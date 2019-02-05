@@ -12,12 +12,24 @@ let rec read_lines () =
       line :: read_lines ()
   with End_of_file -> []
 
-let feed_of_url url = try
+let split s = match String.index_opt s ' ' with
+| None -> s, None
+| Some i -> String.sub s 0 i, Some(String.sub s (i + 1) (String.length s - i - 1))
+
+let feed_of_line (url, filter) =
   let xml = http_get url in
-  Some(Feed.parse xml)
-with e ->
-  Printf.eprintf "Error parsing \"%s\": %s\n" url (Printexc.to_string e);
-  None
+  Feed.filter filter (Feed.parse xml)
+
+let log_error (url, _) e = Printf.eprintf "Error processing \"%s\": %s\n" url (Printexc.to_string e)
+
+let rec map_err log f = function
+| [] -> []
+| h :: t ->
+  try
+    f h :: map_err log f t
+  with e ->
+    log h e;
+    map_err log f t
 
 let domain_regexp = Str.regexp "https?://\\([^/]+\\)"
 let domain url =
@@ -35,10 +47,8 @@ let link_to_blog f =
 
 let rec summary = function
 | [] -> [Element("hr", [], [])]
-| None :: t -> summary t
-| Some f :: None :: t -> summary (Some f :: t)
-| [Some f] -> [link_to_blog f; Element("hr", [], [])]
-| Some f :: t -> link_to_blog f :: Data " | " :: summary t
+| [f] -> [link_to_blog f; Element("hr", [], [])]
+| f :: t -> link_to_blog f :: Data " | " :: summary t
 
 let format_date d =
   let y, m, d = Ptime.to_date d in
@@ -55,10 +65,10 @@ let html_of_entry e =
   ])
 
 let () =
-  let lines = read_lines () in
-  let feeds = List.map feed_of_url lines in
+  let lines = List.map split (read_lines ()) in
+  let feeds = map_err log_error feed_of_line lines in
   let html_summary = summary feeds in
-  let entries = Feed.merge (List.map (function None -> [] | Some f -> f.Feed.entries) feeds) in
+  let entries = Feed.merge (List.map (fun f -> f.Feed.entries) feeds) in
   let html_entries = List.map html_of_entry entries in
   let out = new Netchannels.output_channel stdout in
   write out html_summary;
